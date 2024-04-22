@@ -1,12 +1,15 @@
 package com.example.myserver;
 
 import static android.content.ContentValues.TAG;
-
+import android.content.Context;
+import android.content.Intent;
 import android.Manifest;
 import android.annotation.SuppressLint;
-import android.content.Context;
+import android.content.ContentResolver;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
+import android.database.Cursor;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
@@ -18,29 +21,40 @@ import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
+import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
+import android.provider.Telephony;
 import android.telephony.SmsManager;
 import android.util.Log;
 import android.view.View;
 import android.webkit.WebView;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.ListView;
 import android.widget.TextView;
 
 import fi.iki.elonen.NanoHTTPD;
 
+import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.UnsupportedEncodingException;
 import java.net.FileNameMap;
 import java.net.URLConnection;
 import java.net.URLDecoder;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Scanner;
 
 import android.widget.Toast;
+
 
 public class MainActivity extends AppCompatActivity {
     private boolean serverUp = false;
@@ -50,7 +64,11 @@ public class MainActivity extends AppCompatActivity {
     String message, number;
     private WebView webView;
     final int SEND_SMS_PERMISSION_REQUEST_CODE = 1;
+    private static final int READ_SMS_PERMISSION_CODE = 1;
 
+    private ListView listView;
+
+    public ArrayList<String> smsList = new ArrayList<>();
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -71,6 +89,14 @@ public class MainActivity extends AppCompatActivity {
         textVw = (TextView) findViewById(R.id.ipAdd);
         ipAddressTextView = (TextView) findViewById(R.id.ipAddTextView);
 
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_SMS)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{android.Manifest.permission.READ_SMS}, READ_SMS_PERMISSION_CODE);
+        } else {
+            readSms();
+        }
+
         String wipAddress = getWifiIPAddress(getApplicationContext());
         if (wipAddress != null) {
             ipAddressTextView.setText(wipAddress);
@@ -90,6 +116,42 @@ public class MainActivity extends AppCompatActivity {
             }
         });
     }// Closes Saved instance
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+    }
+
+    public List<String> readSms() {
+        List<String> smsList = new ArrayList<>();
+        ContentResolver contentResolver = getContentResolver();
+        Cursor cursor = contentResolver.query(
+                Telephony.Sms.CONTENT_URI,
+                null,
+                null,
+                null,
+                null);
+
+        if (cursor != null && cursor.moveToFirst()) {
+            do {
+                String address = cursor.getString(cursor.getColumnIndexOrThrow(Telephony.Sms.ADDRESS));
+                String body = cursor.getString(cursor.getColumnIndexOrThrow(Telephony.Sms.BODY));
+                smsList.add("Sender: " + address + "\nMessage: " + body);
+            } while (cursor.moveToNext());
+        }
+
+        if (cursor != null) {
+            cursor.close();
+        }
+
+        return smsList;  // Return the list of SMS messages
+    }
+   public void initializeSmsList() {
+        smsList = new ArrayList<>(readSms()); // Populate smsList with the result of readSms()
+    }
+
+
+
     public String getWifiIPAddress(Context context) {
         WifiManager wifiManager = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         if (wifiManager != null) {
@@ -169,6 +231,17 @@ public class MainActivity extends AppCompatActivity {
             InputStream inputStream;
             Response response = newChunkedResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, null);
 
+            if (Method.POST.equals(session.getMethod()) && "/listview-data".equals(uri)) {
+                try {
+                    initializeSmsList();
+                    String smsLogs = String.join("\n", smsList);
+                    return newFixedLengthResponse(Response.Status.OK, MIME_PLAINTEXT, smsLogs);
+                }catch (Exception e) {
+                    Log.e("HttpServer", "Error handling POST request", e);
+                    return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Server Error");
+                }
+            }
+
             if (Method.POST.equals(session.getMethod()) && "/message".equals(uri)) {
                 try {
                     // Read content length from headers
@@ -193,59 +266,30 @@ public class MainActivity extends AppCompatActivity {
                     String message = formData.get("message");
                     Log.d(TAG, "Received message: " + message);
 
-                    runOnUiThread(() -> sendSMSMessage(number,message));
+                    runOnUiThread(() -> sendSMSMessage(number, message));
                     runOnUiThread(() -> updateTextView(message));
 
-                    if (number != null && message != null) {
-                        sendSMSMessage(number, message); // Call sendSMSMessage function
-                        return newFixedLengthResponse(Response.Status.OK, MIME_PLAINTEXT, "Message received");
-                    } else {
-                        return newFixedLengthResponse(Response.Status.BAD_REQUEST, MIME_PLAINTEXT, "Missing phone number or message parameter");
-                    }
                 } catch (IOException | NumberFormatException e) {
                     e.printStackTrace();
                     return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, MIME_PLAINTEXT, "Error");
                 }
+
             } else {
 
                 try {
                     if (session.getMethod() == Method.GET && uri != null) {
-                        if (uri.contains(".js")) {
-                            inputStream = assetManager.open(uri.substring(1));
-                            return newChunkedResponse(Response.Status.OK, MIME_JS, inputStream);
-                        } else if (uri.contains(".css")) {
-                            inputStream = assetManager.open(uri.substring(1));
-                            return newChunkedResponse(Response.Status.OK, MIME_CSS, inputStream);
-                        } else if (uri.contains(".png")) {
-                            inputStream = assetManager.open(uri.substring(1));
-                            return newChunkedResponse(Response.Status.OK, MIME_PNG, inputStream);
-                        } else if (uri.contains("/mnt/sdcard")) {
-                            Log.d(TAG, "request for media on sdCard " + uri);
-                            File file = new File(uri);
-                            FileInputStream fileInputStream = new FileInputStream(file);
-                            FileNameMap fileNameMap = URLConnection.getFileNameMap();
-                            String contentType = fileNameMap.getContentTypeFor(uri);
-                            Response streamResponse = newChunkedResponse(Response.Status.OK, contentType, fileInputStream);
-                            Random random = new Random();
-                            String hexString = Integer.toHexString(random.nextInt());
-                            streamResponse.addHeader("ETag", hexString);
-                            streamResponse.addHeader("Connection", "Keep-alive");
-                            return streamResponse;
-                        } else {
                             inputStream = assetManager.open("html/index.html");
                             return newChunkedResponse(Response.Status.OK, MIME_HTML, inputStream);
                         }
-
-                    }
                 } catch (IOException e) {
                     Log.d(TAG, e.toString());
                 }
             }
             return response;
-        }// endofServe
+        }// end of 'serve' function
 
 
-    }// endofSERVER
+    }// end of server
 
 
 
@@ -301,4 +345,4 @@ public class MainActivity extends AppCompatActivity {
             }
         }
     }
-}
+} // end of Main class
