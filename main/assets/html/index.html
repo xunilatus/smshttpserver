@@ -15,11 +15,11 @@
         }
 
         .left {
-          width: 25%;
+          width: 40%;
         }
 
         .right {
-          width: 75%;
+          width: 60%;
         }
 
         /* Clear floats after the columns */
@@ -54,12 +54,13 @@
 <h2>SMS MESSAGES</h2>
 
 <div class="row">
-	<div class="column left" style="background-color:#E1E3E7 ;overflow:auto;">
+	<div class="column left" style="background-color:#E1E3E7; overflow:auto;">
 		<h2>PHONE NUMBERS</h2>
-		<p>Some text..</p>
+		<p><textarea id="currentTexts" rows="50" cols="55" ></textarea></p>
+
 		<!-- Other content -->
 	</div>
-	<div class="column right" style="background-color:#F9FBFF ;overflow:auto" readonly>
+	<div class="column right" style="background-color:#F9FBFF; overflow:auto;">
 		<p><textarea id="outputTextbox" rows="60" cols="80" readonly></textarea></p>
 	</div>
 </div>
@@ -75,12 +76,13 @@
 
 <a href="https://www.titips.com">https://www.titips.com</a><br>
 
-<button>SYNC SMS</button>
+
 <button>UPLOAD</button>
 <button>DOWNLOAD</button>
-
+<button onclick="fetchSmsLogs()">SYNC SMS</button>
 <!-- Your JavaScript -->
 <script>
+
 	document.addEventListener('DOMContentLoaded', function() {
         var outputTextbox = document.getElementById("outputTextbox");
         var inputField = document.getElementById("inputField");
@@ -112,30 +114,94 @@
             inputField.value = "";
             inputFieldPhone.value = "";
         });
+
+        // my sendSMSMessage function is already using responseText it works well for sending messages from another text field
+        function sendSMSMessage(phoneNumber, message) {
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", "/message", true);
+            xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === XMLHttpRequest.DONE) {
+                    if (xhr.status === 200) {
+                        // Server response received successfully
+                        var responseText = xhr.responseText;
+                        console.log("Server response: " + responseText);
+                        // You can update the DOM or display a confirmation message here
+                        // For example:
+                        alert("Message received from server");
+                    } else {
+                        // Error handling
+                        console.error("Error: Server response status " + xhr.status);
+                    }
+                }
+            };
+            xhr.send("phoneNumber=" + encodeURIComponent(phoneNumber) + "&message=" + encodeURIComponent(message));
+        }
+
+
+function fetchListViewData() {
+    var xhr = new XMLHttpRequest();
+    xhr.open("POST", "/listview-data", true);
+    xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState === XMLHttpRequest.DONE) {
+            console.log("Request status:", xhr.status);
+            console.log("Response text:", xhr.responseText);
+            if (xhr.status === 200) {
+                var listViewData = xhr.responseText; // Fetch the SMS logs
+                updateCurrentTexts(listViewData); // Update the textarea with the fetched data
+            } else {
+                console.error("Error fetching ListView data: " + xhr.status);
+            }
+        }
+    };
+    xhr.send(); // POST request with no additional data
+}
+
+function updateCurrentTexts(data) {
+    var currentTexts = document.getElementById("currentTexts"); // Ensure you have the correct ID
+    if (currentTexts) {
+        currentTexts.value = data; // Set the textarea content to the fetched data
+    }
+}
+     fetchListViewData();
     });
 
-    // Function to send SMS message
-    function sendSMSMessage(phoneNumber, message) {
-        var xhr = new XMLHttpRequest();
-        xhr.open("POST", "/message", true);
-        xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
-        xhr.onreadystatechange = function() {
-            if (xhr.readyState === XMLHttpRequest.DONE) {
-                if (xhr.status === 200) {
-                    // Server response received successfully
-                    var responseText = xhr.responseText;
-                    console.log("Server response: " + responseText);
-                    // You can update the DOM or display a confirmation message here
-                    // For example:
-                    alert("Message received from server");
-                } else {
-                    // Error handling
-                    console.error("Error: Server response status " + xhr.status);
-                }
-            }
-        };
-        xhr.send("phoneNumber=" + encodeURIComponent(phoneNumber) + "&message=" + encodeURIComponent(message));
-    }
+document.addEventListener("DOMContentLoaded", fetchListViewData); //
+
+
+			// Function to fetch SMS logs from the server
+function fetchSmsLogs() {
+    fetch('/listview-data', { // Ensure correct server endpoint
+        method: 'POST',
+        headers: {
+            'Content-Type': 'text/plain', // Assuming server sends plain text
+        },
+        body: '', // POST request with no body content
+    })
+    .then(response => {
+        if (response.ok) {
+            return response.text(); // Get the response text
+        } else {
+            throw new Error(`Request failed with status ${response.status}`);
+        }
+    })
+    .then(data => {
+        // Update the currentTexts textarea with the fetched data
+        const currentTexts = document.getElementById('currentTexts'); // Correct ID
+        if (currentTexts) {
+            currentTexts.value = smsLogs; // Set the textarea content to the fetched data
+        }
+    })
+    .catch(error => {
+        console.error('Error fetching SMS logs:', error); // Handle errors
+    });
+}
+
+// Call fetchSmsLogs when the page loads
+document.addEventListener('DOMContentLoaded', fetchSmsLogs); // Correct event listener
+
+
 </script>
 
 </body>
