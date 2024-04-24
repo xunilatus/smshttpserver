@@ -2,18 +2,14 @@ package com.example.myserver;
 
 import static android.content.ContentValues.TAG;
 import android.content.Context;
-import android.content.Intent;
 import android.Manifest;
-import android.annotation.SuppressLint;
 import android.content.ContentResolver;
-import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.database.Cursor;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
-
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
@@ -21,38 +17,22 @@ import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
-import androidx.localbroadcastmanager.content.LocalBroadcastManager;
-
 import android.provider.Telephony;
 import android.telephony.SmsManager;
 import android.util.Log;
 import android.view.View;
-import android.webkit.WebView;
-import android.widget.ArrayAdapter;
 import android.widget.Button;
-import android.widget.ListView;
 import android.widget.TextView;
-
 import fi.iki.elonen.NanoHTTPD;
-
-import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.io.UnsupportedEncodingException;
-import java.net.FileNameMap;
-import java.net.URLConnection;
 import java.net.URLDecoder;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.Scanner;
-
+import android.os.PowerManager;
 import android.widget.Toast;
 
 
@@ -62,15 +42,12 @@ public class MainActivity extends AppCompatActivity {
     private TextView serverTextView, ipAddressTextView, textVw;
     private Button serverButton;
     String message, number;
-    private WebView webView;
-    final int SEND_SMS_PERMISSION_REQUEST_CODE = 1;
-    private static final int READ_SMS_PERMISSION_CODE = 1;
 
-    private ListView listView;
-
+    private static final int SMS_PERMISSIONS_REQUEST_CODE = 100;
+    //final int SEND_SMS_PERMISSION_REQUEST_CODE = 1;
+    //private static final int READ_SMS_PERMISSION_CODE = 1;
     public ArrayList<String> smsList = new ArrayList<>();
 
-    @SuppressLint("SetJavaScriptEnabled")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -82,21 +59,20 @@ public class MainActivity extends AppCompatActivity {
             return insets;
         });
         final int port = 8080;
-
+        PowerManager powerManager = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        PowerManager.WakeLock wakeLock = powerManager.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MyApp::MyWakeLockTag");
         serverButton = (Button) findViewById(R.id.serverButton);
         serverTextView = (TextView) findViewById(R.id.serverTextView);
         ipAddressTextView = (TextView) findViewById(R.id.ipAddTextView);
         textVw = (TextView) findViewById(R.id.ipAdd);
         ipAddressTextView = (TextView) findViewById(R.id.ipAddTextView);
+        requestSmsPermissions();
+        wakeLock.acquire();
 
-        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.READ_SMS)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{android.Manifest.permission.READ_SMS}, READ_SMS_PERMISSION_CODE);
-        } else {
-            readSms();
+        if (wakeLock.isHeld()) {
+            wakeLock.release();
         }
-
+        
         String wipAddress = getWifiIPAddress(getApplicationContext());
         if (wipAddress != null) {
             ipAddressTextView.setText(wipAddress);
@@ -117,11 +93,35 @@ public class MainActivity extends AppCompatActivity {
         });
     }// Closes Saved instance
 
+    public void requestSmsPermissions() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) != PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
+
+            ActivityCompat.requestPermissions(
+                    this,
+                    new String[]{Manifest.permission.READ_SMS, Manifest.permission.SEND_SMS},
+                    SMS_PERMISSIONS_REQUEST_CODE
+            );
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == SMS_PERMISSIONS_REQUEST_CODE) {
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                // Permissions were granted. You can proceed with your SMS-related operations.
+            } else {
+                // Permissions were denied. You should handle this case appropriately.
+                // Inform the user that they need to grant permissions for the app to work properly.
+            }
+        }
+    }
+
     @Override
     protected void onDestroy() {
         super.onDestroy();
     }
-
     public List<String> readSms() {
         List<String> smsList = new ArrayList<>();
         ContentResolver contentResolver = getContentResolver();
@@ -150,8 +150,6 @@ public class MainActivity extends AppCompatActivity {
         smsList = new ArrayList<>(readSms()); // Populate smsList with the result of readSms()
     }
 
-
-
     public String getWifiIPAddress(Context context) {
         WifiManager wifiManager = (WifiManager) context.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
         if (wifiManager != null) {
@@ -176,7 +174,7 @@ public class MainActivity extends AppCompatActivity {
             textVw.setText("");
         }
     }
-
+    // Needed Later
     private String streamToString(InputStream inputStream) {
         Scanner s = new Scanner(inputStream).useDelimiter("\\A");
         return s.hasNext() ? s.next() : "";
@@ -217,8 +215,7 @@ public class MainActivity extends AppCompatActivity {
         private static final int PORT = 8080;
         private static final String TAG = "HttpServer";
         private AssetManager assetManager;
-        private String message;
-
+        //private String message;
         public WebServer() {
             super(8080);
         }
@@ -305,11 +302,6 @@ public class MainActivity extends AppCompatActivity {
             if (ActivityCompat.shouldShowRequestPermissionRationale(this,
                     android.Manifest.permission.SEND_SMS)) {
                 // Explain why SMS permission is needed
-            } else {
-                // Request SMS permission
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.SEND_SMS},
-                        SEND_SMS_PERMISSION_REQUEST_CODE);
             }
         } else {
             // Permission already granted, send SMS
@@ -326,23 +318,5 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String permissions[], int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        switch (requestCode) {
-            case SEND_SMS_PERMISSION_REQUEST_CODE: {
-                if (grantResults.length > 0
-                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    SmsManager smsManager = SmsManager.getDefault();
-                    smsManager.sendTextMessage(number, null, message, null, null);
-                    Toast.makeText(getApplicationContext(), "SMS sent.",
-                            Toast.LENGTH_LONG).show();
-                } else {
-                    Toast.makeText(getApplicationContext(),
-                            "SMS faild, please try again.", Toast.LENGTH_LONG).show();
-                }
-                break;
-            }
-        }
-    }
+
 } // end of Main class
